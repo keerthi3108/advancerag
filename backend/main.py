@@ -114,6 +114,15 @@ def chat(request: ChatRequest) -> dict[str, Any]:
     try:
         answer, sources = answer_question(question, top_k=request.top_k)
     except Exception as exc:
+        message = str(exc)
+        if "invalid_api_key" in message or "Invalid API Key" in message:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Groq rejected the API key. Update GROQ_API_KEY in the "
+                    "backend hosting environment and redeploy."
+                ),
+            ) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {

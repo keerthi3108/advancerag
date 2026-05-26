@@ -62,11 +62,12 @@ Do not add extra notes outside the answer."""
 
 
 def groq_client() -> OpenAI:
-    if not os.getenv("GROQ_API_KEY"):
+    api_key = (os.getenv("GROQ_API_KEY") or "").strip()
+    if not api_key:
         raise RuntimeError(
             "GROQ_API_KEY is missing. Add it to .env before asking questions."
         )
-    return OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url=GROQ_BASE_URL)
+    return OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
 
 
 @traceable(name="load_documents")
