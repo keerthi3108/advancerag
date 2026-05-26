@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import DATA_DIR, ROOT, answer_question, build_vector_store
+from app import DATA_DIR, ROOT, answer_question, build_vector_store, ensure_vector_store
 
 
 app = FastAPI(title="Naive RAG API")
@@ -19,6 +19,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    try:
+        ensure_vector_store()
+    except Exception as exc:
+        print(f"ChromaDB was not built on startup: {exc}")
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 

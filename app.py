@@ -201,6 +201,24 @@ def load_vector_store():
     return collection, vectorizer
 
 
+def vector_store_exists() -> bool:
+    if not CHROMA_DIR.exists() or not VECTORIZER_PATH.exists():
+        return False
+
+    try:
+        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        client.get_collection(name=COLLECTION_NAME)
+        return True
+    except Exception:
+        return False
+
+
+def ensure_vector_store() -> None:
+    if vector_store_exists():
+        return
+    build_vector_store()
+
+
 @traceable(name="retrieve")
 def retrieve(question: str, top_k: int = 4) -> list[dict[str, Any]]:
     collection, vectorizer = load_vector_store()
