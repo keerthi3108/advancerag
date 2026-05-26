@@ -10,7 +10,8 @@ import {
   User,
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 function compactText(text, limit = 260) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -111,7 +112,7 @@ export default function App() {
         body: formData,
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Upload failed.");
+      if (!response.ok) throw new Error(data.detail || "Upload failed. Check VITE_API_BASE.");
       setDocuments(data.documents || []);
       setFiles([]);
       setStatus("Documents uploaded. Rebuild ChromaDB before asking.");
@@ -129,7 +130,7 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE}/api/index`, { method: "POST" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Indexing failed.");
+      if (!response.ok) throw new Error(data.detail || "Indexing failed. Check VITE_API_BASE.");
       setDocuments(data.documents || []);
       setStatus(data.message);
     } catch (error) {
@@ -156,7 +157,7 @@ export default function App() {
         body: JSON.stringify({ question: trimmed, top_k: topK }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Chat failed.");
+      if (!response.ok) throw new Error(data.detail || "Chat failed. Check VITE_API_BASE.");
       setMessages((current) => [
         ...current,
         { role: "assistant", content: data.answer, sources: data.sources },
