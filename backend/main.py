@@ -3,7 +3,7 @@ from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -14,8 +14,8 @@ app = FastAPI(title="Naive RAG API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -123,12 +123,15 @@ def chat(request: ChatRequest) -> dict[str, Any]:
 
 
 @app.get("/")
-def serve_frontend() -> FileResponse:
+def serve_frontend():
     index_file = FRONTEND_DIST / "index.html"
     if not index_file.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="React frontend is not built yet. Run: cd frontend && npm run build",
+        return JSONResponse(
+            {
+                "status": "ok",
+                "service": "Naive RAG backend",
+                "message": "Backend is running. Use /api/health for health checks.",
+            }
         )
     return FileResponse(index_file)
 

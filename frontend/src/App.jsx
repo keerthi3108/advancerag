@@ -94,7 +94,7 @@ export default function App() {
       const data = await response.json();
       setDocuments(data.documents || []);
     } catch {
-      setStatus("Backend is not reachable. Start it with run_backend.bat.");
+      setStatus("Backend is not reachable. Check VITE_API_BASE in deployment settings.");
     }
   }
 
