@@ -25,7 +25,7 @@ LangSmith tracing is enabled through these environment variables:
 
 ```text
 LANGSMITH_TRACING=true
-LANGSMITH_PROJECT=Simple Naive RAG
+LANGSMITH_PROJECT=Advanced RAG
 ```
 
 For deployed frontend builds, set this frontend environment variable to the backend URL:
@@ -136,7 +136,7 @@ From the project folder:
 ```powershell
 git init
 git add .
-git commit -m "Build naive RAG chatbot"
+git commit -m "Build advanced RAG chatbot"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
 git push -u origin main

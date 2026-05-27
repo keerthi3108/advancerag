@@ -205,7 +205,7 @@ export default function App() {
             <Database size={24} />
           </div>
           <div>
-            <h1>Naive RAG</h1>
+            <h1>Advanced RAG</h1>
             <p>Advanced Hybrid Retrieval</p>
           </div>
         </div>
