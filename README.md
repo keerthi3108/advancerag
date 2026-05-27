@@ -1,8 +1,8 @@
-# Simple Naive RAG with LangSmith
+# Advanced Hybrid RAG with LangSmith
 
-This is a small RAG pipeline for the included PDF:
+This project started as a simple naive RAG pipeline and now includes an advanced retrieval layer:
 
-`Documents -> Load Data -> Chunking -> Embeddings -> ChromaDB -> User Query -> Retrieval -> Prompt + Context -> Groq LLM -> Final Answer`
+`Documents -> Load Data -> Chunking -> TF-IDF Embeddings -> ChromaDB -> Query Optimization -> Hybrid Search -> Reranking -> Compact Context -> Groq LLM -> Final Answer`
 
 The current document is:
 
@@ -104,17 +104,30 @@ npm install
 ## How It Works
 
 1. Reads PDFs, `.txt`, and `.md` files from `data/`.
-2. Splits text into overlapping chunks.
+2. Splits text into smaller overlapping chunks and removes duplicate chunks.
 3. Creates simple local TF-IDF embeddings.
-4. Saves TF-IDF embeddings and chunk metadata in ChromaDB under `chroma_db/`.
-5. Retrieves the most similar chunks for a question.
-6. Sends only the retrieved context to the LLM.
-7. Uses a strict prompt: answer only from context, otherwise say `Not found`.
-8. Sends traces to LangSmith when LangSmith environment variables are configured.
+4. Saves embeddings and metadata in ChromaDB under `chroma_db/`.
+5. Optimizes the user query with lightweight intent-preserving expansion.
+6. Runs hybrid retrieval:
+   - Chroma vector similarity search
+   - BM25-style keyword search
+7. Merges and deduplicates results.
+8. Reranks chunks using hybrid score plus query term coverage.
+9. Sends only the best compact context to Groq.
+10. Uses a strict prompt: answer only from context, otherwise say `I could not find that in the uploaded document.`
+11. Sends traces to LangSmith when LangSmith environment variables are configured.
 
 ## Notes
 
-This is intentionally naive and simple. It uses ChromaDB as the vector database, TF-IDF for simple local embeddings, and Groq for the final LLM answer.
+The backend is still beginner-friendly, but the retrieval architecture is now closer to production RAG. It avoids extra LLM calls during retrieval, supports multiple uploaded documents, stores source/page metadata, caches Chroma/vectorizer reads, and limits context before sending it to Groq.
+
+## Advanced RAG Files
+
+- `document_loader.py` - loads PDFs/TXT/MD files and chunks them with metadata.
+- `query_optimizer.py` - rewrites/expands queries without calling an LLM.
+- `hybrid_search.py` - combines Chroma vector search with BM25-style keyword search.
+- `reranker.py` - reranks merged chunks before generation.
+- `retrieval_pipeline.py` - orchestrates indexing, caching, retrieval, merging, and reranking.
 
 ## GitHub Push
 

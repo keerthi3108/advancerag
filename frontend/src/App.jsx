@@ -3,8 +3,9 @@ import {
   Bot,
   Database,
   FileText,
+  Layers3,
   Loader2,
-  RefreshCcw,
+  Trash2,
   Send,
   Upload,
   User,
@@ -70,7 +71,7 @@ export default function App() {
     {
       role: "assistant",
       content:
-        "Upload or use the existing document, build ChromaDB, then ask me questions from the document.",
+        "Advanced RAG is ready. Upload documents, build ChromaDB, then ask questions across your indexed knowledge base.",
     },
   ]);
   const [question, setQuestion] = useState("");
@@ -115,7 +116,7 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Upload failed. Check VITE_API_BASE.");
       setDocuments(data.documents || []);
       setFiles([]);
-      setStatus("Documents uploaded. Rebuild ChromaDB before asking.");
+      setStatus("Documents uploaded and ChromaDB was rebuilt.");
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -131,6 +132,28 @@ export default function App() {
       const response = await fetch(`${API_BASE}/api/index`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Indexing failed. Check VITE_API_BASE.");
+      setDocuments(data.documents || []);
+      setStatus(data.message);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteDocument(name) {
+    const confirmed = window.confirm(`Delete ${name} and rebuild the index?`);
+    if (!confirmed) return;
+
+    setBusy(true);
+    setStatus(`Deleting ${name}...`);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/documents/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Delete failed.");
       setDocuments(data.documents || []);
       setStatus(data.message);
     } catch (error) {
@@ -183,9 +206,20 @@ export default function App() {
           </div>
           <div>
             <h1>Naive RAG</h1>
-            <p>React + Python + ChromaDB</p>
+            <p>Advanced Hybrid Retrieval</p>
           </div>
         </div>
+
+        <section className="pipeline-card">
+          <div>
+            <span>Query Rewrite</span>
+            <strong>Hybrid Search</strong>
+          </div>
+          <div>
+            <span>BM25 + Vector</span>
+            <strong>Reranked Context</strong>
+          </div>
+        </section>
 
         <section className="panel">
           <div className="panel-title">
@@ -209,8 +243,8 @@ export default function App() {
 
         <section className="panel">
           <div className="panel-title">
-            <RefreshCcw size={18} />
-            <h2>Index</h2>
+            <Layers3 size={18} />
+            <h2>Advanced Index</h2>
           </div>
           <button disabled={busy} onClick={rebuildIndex}>
             {busy ? <Loader2 className="spin" size={17} /> : <Database size={17} />}
@@ -241,6 +275,15 @@ export default function App() {
                   <strong>{document.name}</strong>
                   <span>{formatSize(document.size)}</span>
                 </div>
+                <button
+                  className="icon-button danger"
+                  disabled={busy}
+                  onClick={() => deleteDocument(document.name)}
+                  title={`Delete ${document.name}`}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             ))
           ) : (
@@ -252,8 +295,11 @@ export default function App() {
       <section className="chat-panel">
         <header className="chat-header">
           <div>
-            <p className="eyebrow">Document Question Answering</p>
-            <h2>Ask from your uploaded document</h2>
+            <p className="eyebrow">Advanced RAG Workspace</p>
+            <h2>Ask across uploaded documents</h2>
+            <p className="header-copy">
+              Optimized query, hybrid retrieval, reranking, and compact context before Groq answers.
+            </p>
           </div>
           <div className="status-pill">{documentCount} document(s)</div>
         </header>
@@ -285,7 +331,7 @@ export default function App() {
             placeholder="Ask something from the document..."
           />
           <button disabled={busy || !question.trim()} type="submit">
-            <Send size={18} />
+            {busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
           </button>
         </form>
       </section>

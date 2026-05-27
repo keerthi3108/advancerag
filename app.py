@@ -1,15 +1,12 @@
 import argparse
-import json
+import logging
 import os
-import pickle
 from pathlib import Path
 from typing import Any
 
-import chromadb
-import numpy as np
 from openai import OpenAI
-from pypdf import PdfReader
-from sklearn.feature_extraction.text import TfidfVectorizer
+
+from retrieval_pipeline import AdvancedRetrievalPipeline
 
 ROOT = Path(__file__).parent
 
@@ -49,16 +46,28 @@ DATA_DIR = ROOT / "data"
 CHROMA_DIR = ROOT / "chroma_db"
 VECTORIZER_PATH = CHROMA_DIR / "vectorizer.pkl"
 COLLECTION_NAME = "naive_rag_documents"
+MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "6500"))
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
 
-SYSTEM_PROMPT = """You are a simple naive RAG assistant.
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
+
+retrieval_pipeline = AdvancedRetrievalPipeline(
+    data_dir=DATA_DIR,
+    chroma_dir=CHROMA_DIR,
+    vectorizer_path=VECTORIZER_PATH,
+    collection_name=COLLECTION_NAME,
+)
+
+SYSTEM_PROMPT = """You are an advanced RAG assistant.
 Answer only from the provided context.
 If the answer is available, explain it in clear student-friendly language.
 If the answer is not available in the context, say: "I could not find that in the uploaded document."
 Do not mention chunk numbers in the answer because the app shows sources separately.
-Do not add extra notes outside the answer."""
+When useful, synthesize information across multiple uploaded documents.
+Be concise, accurate, and avoid guessing."""
 
 
 def groq_client() -> OpenAI:
@@ -70,193 +79,40 @@ def groq_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
 
 
-@traceable(name="load_documents")
-def load_documents(data_dir: Path = DATA_DIR) -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-
-    for path in sorted(data_dir.glob("*")):
-        if path.suffix.lower() == ".pdf":
-            reader = PdfReader(str(path))
-            for page_number, page in enumerate(reader.pages, start=1):
-                text = page.extract_text() or ""
-                if text.strip():
-                    documents.append(
-                        {
-                            "text": text,
-                            "source": path.name,
-                            "page": page_number,
-                        }
-                    )
-        elif path.suffix.lower() in {".txt", ".md"}:
-            documents.append(
-                {
-                    "text": path.read_text(encoding="utf-8"),
-                    "source": path.name,
-                    "page": None,
-                }
-            )
-
-    if not documents:
-        raise RuntimeError(f"No readable documents found in {data_dir}")
-
-    return documents
-
-
-@traceable(name="chunk_documents")
-def chunk_documents(
-    documents: list[dict[str, Any]],
-    chunk_size: int = 900,
-    overlap: int = 150,
-) -> list[dict[str, Any]]:
-    chunks: list[dict[str, Any]] = []
-    chunk_id = 1
-
-    for document in documents:
-        text = " ".join(document["text"].split())
-        start = 0
-
-        while start < len(text):
-            end = start + chunk_size
-            chunk_text = text[start:end].strip()
-            if chunk_text:
-                chunks.append(
-                    {
-                        "id": chunk_id,
-                        "text": chunk_text,
-                        "source": document["source"],
-                        "page": document["page"],
-                    }
-                )
-                chunk_id += 1
-            start += chunk_size - overlap
-
-    return chunks
-
-
-def normalize(vectors: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-    norms[norms == 0] = 1
-    return vectors / norms
-
-
-@traceable(name="create_embeddings")
-def create_embeddings(
-    texts: list[str],
-    vectorizer: TfidfVectorizer | None = None,
-    fit: bool = False,
-) -> tuple[np.ndarray, TfidfVectorizer]:
-    if fit:
-        vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
-        matrix = vectorizer.fit_transform(texts)
-    elif vectorizer is not None:
-        matrix = vectorizer.transform(texts)
-    else:
-        raise ValueError("Pass a vectorizer or set fit=True.")
-
-    return normalize(matrix.toarray().astype(np.float32)), vectorizer
-
-
 @traceable(name="build_vector_store")
 def build_vector_store() -> None:
-    CHROMA_DIR.mkdir(exist_ok=True)
-    documents = load_documents()
-    chunks = chunk_documents(documents)
-    embeddings, vectorizer = create_embeddings([chunk["text"] for chunk in chunks], fit=True)
-
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    try:
-        client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
-    collection = client.create_collection(name=COLLECTION_NAME)
-
-    collection.add(
-        ids=[str(chunk["id"]) for chunk in chunks],
-        documents=[chunk["text"] for chunk in chunks],
-        metadatas=[
-            {
-                "chunk_id": chunk["id"],
-                "source": chunk["source"],
-                "page": chunk["page"] or "",
-            }
-            for chunk in chunks
-        ],
-        embeddings=embeddings.tolist(),
-    )
-
-    with VECTORIZER_PATH.open("wb") as file:
-        pickle.dump(vectorizer, file)
-
-    print(f"Indexed {len(chunks)} chunks from {len(documents)} document pages/files.")
+    stats = retrieval_pipeline.build_vector_store()
+    print(f"Indexed {stats['chunks']} chunks from {stats['documents']} document pages/files.")
     print(f"Saved ChromaDB vector store to {CHROMA_DIR}")
 
 
 def load_vector_store():
-    if not CHROMA_DIR.exists() or not VECTORIZER_PATH.exists():
-        raise RuntimeError("ChromaDB vector store not found. Run: .\\run.bat --index")
-
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    collection = client.get_collection(name=COLLECTION_NAME)
-    with VECTORIZER_PATH.open("rb") as file:
-        vectorizer = pickle.load(file)
-    return collection, vectorizer
+    return retrieval_pipeline._load_store_cached()
 
 
 def vector_store_exists() -> bool:
-    if not CHROMA_DIR.exists() or not VECTORIZER_PATH.exists():
-        return False
-
-    try:
-        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        client.get_collection(name=COLLECTION_NAME)
-        return True
-    except Exception:
-        return False
+    return retrieval_pipeline.vector_store_exists()
 
 
 def ensure_vector_store() -> None:
-    if vector_store_exists():
-        return
-    build_vector_store()
+    retrieval_pipeline.ensure_vector_store()
 
 
 @traceable(name="retrieve")
 def retrieve(question: str, top_k: int = 4) -> list[dict[str, Any]]:
-    collection, vectorizer = load_vector_store()
-    query_vectors, _ = create_embeddings([question], vectorizer=vectorizer)
-    query_result = collection.query(
-        query_embeddings=query_vectors.tolist(),
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    results: list[dict[str, Any]] = []
-    for chunk_id, text, metadata, distance in zip(
-        query_result["ids"][0],
-        query_result["documents"][0],
-        query_result["metadatas"][0],
-        query_result["distances"][0],
-    ):
-        results.append(
-            {
-                "id": int(metadata["chunk_id"]),
-                "text": text,
-                "source": metadata["source"],
-                "page": metadata["page"] or None,
-                "distance": float(distance),
-            }
-        )
-
-    return results
+    return retrieval_pipeline.retrieve(question, top_k=top_k)
 
 
 def format_context(chunks: list[dict[str, Any]]) -> str:
     context_parts = []
+    total_chars = 0
     for chunk in chunks:
         page = f", page {chunk['page']}" if chunk.get("page") else ""
-        context_parts.append(
-            f"[chunk {chunk['id']} | {chunk['source']}{page}]\n{chunk['text']}"
-        )
+        block = f"[source: {chunk['source']}{page}]\n{chunk['text']}"
+        if total_chars + len(block) > MAX_CONTEXT_CHARS:
+            break
+        context_parts.append(block)
+        total_chars += len(block)
     return "\n\n".join(context_parts)
 
 

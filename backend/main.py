@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app import DATA_DIR, ROOT, answer_question, build_vector_store, ensure_vector_store
@@ -30,10 +31,6 @@ def startup() -> None:
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
-if (FRONTEND_DIST / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
-
-
 class ChatRequest(BaseModel):
     question: str
     top_k: int = 4
@@ -45,6 +42,8 @@ def serialize_source(source: dict[str, Any]) -> dict[str, Any]:
         "source": source["source"],
         "page": source["page"],
         "distance": source["distance"],
+        "hybrid_score": source.get("hybrid_score"),
+        "rerank_score": source.get("rerank_score"),
         "text": source["text"],
     }
 
@@ -93,26 +92,55 @@ async def upload_documents(files: list[UploadFile] = File(...)) -> dict[str, Any
         target.write_bytes(await file.read())
         saved.append(filename)
 
+    try:
+        await run_in_threadpool(build_vector_store)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Files uploaded, but indexing failed: {exc}") from exc
+
     return {"saved": saved, "documents": list_documents()}
 
 
+@app.delete("/api/documents/{filename}")
+async def delete_document(filename: str) -> dict[str, Any]:
+    safe_name = Path(filename).name
+    target = DATA_DIR / safe_name
+
+    if not target.exists() or target.suffix.lower() not in {".pdf", ".txt", ".md"}:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    target.unlink()
+
+    remaining_documents = list_documents()
+    if remaining_documents:
+        try:
+            await run_in_threadpool(build_vector_store)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Document deleted, but reindexing failed: {exc}") from exc
+
+    return {"message": f"Deleted {safe_name}.", "documents": remaining_documents}
+
+
+if (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+
 @app.post("/api/index")
-def index_documents() -> dict[str, Any]:
+async def index_documents() -> dict[str, Any]:
     try:
-        build_vector_store()
+        await run_in_threadpool(build_vector_store)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"message": "ChromaDB index is ready.", "documents": list_documents()}
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest) -> dict[str, Any]:
+async def chat(request: ChatRequest) -> dict[str, Any]:
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     try:
-        answer, sources = answer_question(question, top_k=request.top_k)
+        answer, sources = await run_in_threadpool(answer_question, question, request.top_k)
     except Exception as exc:
         message = str(exc)
         if "invalid_api_key" in message or "Invalid API Key" in message:
